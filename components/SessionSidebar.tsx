@@ -17,6 +17,7 @@ interface Props {
   onSelectSession: (session: SessionInfo, isRestore?: boolean) => void;
   onNewSession?: (sessionId: string, cwd: string) => void;
   initialSessionId?: string | null;
+  initialSessionReady?: boolean;
   onInitialRestoreDone?: () => void;
   refreshKey?: number;
   onSessionDeleted?: (sessionId: string) => void;
@@ -319,7 +320,7 @@ function PiAgentTitle() {
   );
 }
 
-export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, explorerRefreshKey, onAtMention, onAtMentions }: Props) {
+export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, initialSessionReady = true, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, explorerRefreshKey, onAtMention, onAtMentions }: Props) {
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -532,12 +533,20 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     return () => { cancelled = true; };
   }, [selectedCwd, wtRefreshKey, refreshKey]);
 
-  // Auto-select cwd and restore session from URL on first load
+  // Auto-select cwd and restore the session requested by URL/local storage.
   useEffect(() => {
-    if (allSessions.length === 0) return;
+    if (!initialSessionReady || loading) return;
+
+    if (allSessions.length === 0) {
+      if (initialSessionId && !restoredRef.current) {
+        restoredRef.current = true;
+        onInitialRestoreDone?.();
+      }
+      return;
+    }
 
     if (selectedCwd === null) {
-      // If restoring a session, set cwd to match that session
+      // If restoring a session, set cwd to match that session.
       if (initialSessionId && !restoredRef.current) {
         restoredRef.current = true;
         const target = allSessions.find((s) => s.id === initialSessionId);
@@ -546,13 +555,13 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           onSelectSession(target, true);
           return;
         }
-        // Session not found — notify parent so it can show the placeholder
+        // Session not found — clear stale restore state and use normal fallback.
         onInitialRestoreDone?.();
       }
       const projects = getRecentProjects(allSessions);
       if (projects.length > 0) setSelectedCwd(projects[0]);
     }
-  }, [allSessions, selectedCwd, initialSessionId, onSelectSession, onInitialRestoreDone]);
+  }, [allSessions, selectedCwd, initialSessionId, initialSessionReady, loading, onSelectSession, onInitialRestoreDone]);
 
   const commitCustomPath = useCallback(async (candidate?: string) => {
     const path = (candidate ?? customPathValue).trim();

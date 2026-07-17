@@ -16,6 +16,7 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import { copyText } from "@/lib/clipboard";
 import { getFileName } from "@/lib/file-paths";
 import { buildAtMentionText, buildFileAtMentionsText } from "@/lib/file-fuzzy";
+import { clearLastSessionId, loadLastSessionId, saveLastSessionId } from "@/lib/last-session-store";
 import type { SessionInfo, SessionTreeNode } from "@/lib/types";
 import type { ChatInputHandle } from "./ChatInput";
 import type { SessionStatsInfo } from "@/lib/pi-types";
@@ -146,12 +147,24 @@ export function AppShell() {
     if (mentions) chatInputRef.current?.insertText(mentions);
   }, []);
 
-  const [initialSessionId] = useState<string | null>(() => searchParams.get("session"));
+  const [initialUrlSessionId] = useState<string | null>(() => searchParams.get("session")?.trim() || null);
+  const [initialSessionId, setInitialSessionId] = useState<string | null>(initialUrlSessionId);
+  const [initialSessionReady, setInitialSessionReady] = useState(initialUrlSessionId !== null);
   const [activeCwd, setActiveCwd] = useState<string | null>(null);
-  // True once the initial ?session= URL param has been resolved (or confirmed absent)
-  const [initialSessionRestored, setInitialSessionRestored] = useState<boolean>(() => !searchParams.get("session"));
-  // Suppresses sessionKey bump in handleCwdChange during the initial URL restore
+  // True once the initial URL/local-storage session has been restored (or confirmed absent).
+  const [initialSessionRestored, setInitialSessionRestored] = useState(false);
+  // Suppresses sessionKey bump in handleCwdChange during the initial session restore.
   const suppressCwdBumpRef = useRef(false);
+
+  // An explicit URL always wins. On the bare home URL, restore the last session
+  // successfully opened by this browser origin.
+  useEffect(() => {
+    if (initialUrlSessionId) return;
+    const storedSessionId = loadLastSessionId();
+    setInitialSessionId(storedSessionId);
+    setInitialSessionReady(true);
+    if (!storedSessionId) setInitialSessionRestored(true);
+  }, [initialUrlSessionId]);
 
   const handleCwdChange = useCallback((cwd: string | null, projectRoot?: string | null) => {
     setActiveCwd(cwd);
@@ -202,12 +215,12 @@ export function AppShell() {
       // onCwdChange effect firing after setSelectedCwd in the sidebar
       suppressCwdBumpRef.current = true;
     }
-    // Skip router.replace when restoring from URL — the param is already correct
-    // and calling replace in production Next.js triggers a Suspense remount loop
-    if (!isRestore) {
+    // Skip replace only when restoring the same explicit URL. A session restored
+    // from local storage starts at `/`, so put its id back into the address bar.
+    if (!isRestore || initialUrlSessionId !== session.id) {
       router.replace(`?session=${encodeURIComponent(session.id)}`, { scroll: false });
     }
-  }, [router, isMobile]);
+  }, [router, isMobile, initialUrlSessionId]);
 
   const handleNewSession = useCallback((_sessionId: string, cwd: string) => {
     setSelectedSession(null);
@@ -269,11 +282,13 @@ export function AppShell() {
   }, [router, hydrateSelectedSession]);
 
   const handleInitialRestoreDone = useCallback(() => {
+    if (initialSessionId) clearLastSessionId(initialSessionId);
     setInitialSessionRestored(true);
-  }, []);
+  }, [initialSessionId]);
 
   const handleSessionDeleted = useCallback((sessionId: string) => {
     setRefreshKey((k) => k + 1);
+    clearLastSessionId(sessionId);
     if (selectedSession?.id === sessionId) {
       const cwd = selectedSession.cwd;
       setSelectedSession(null);
@@ -286,6 +301,10 @@ export function AppShell() {
       router.replace("/", { scroll: false });
     }
   }, [selectedSession, router]);
+
+  useEffect(() => {
+    if (selectedSession?.id) saveLastSessionId(selectedSession.id);
+  }, [selectedSession?.id]);
 
   const handleOpenFile = useCallback((filePath: string, fileName: string, sourceSessionId?: string | null) => {
     const tabId = `file:${filePath}`;
@@ -342,6 +361,7 @@ export function AppShell() {
         onSelectSession={handleSelectSession}
         onNewSession={handleNewSession}
         initialSessionId={initialSessionId}
+        initialSessionReady={initialSessionReady}
         onInitialRestoreDone={handleInitialRestoreDone}
         refreshKey={refreshKey}
         onSessionDeleted={handleSessionDeleted}

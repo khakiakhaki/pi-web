@@ -46,6 +46,7 @@ PI_WEB_NO_OPEN=1 pi-web         # 适用于后台服务或开机自启
 
 - **数据目录**：默认读取 `~/.pi/agent/sessions` 下的会话文件。可通过环境变量 `PI_CODING_AGENT_DIR` 指定其他 pi agent 目录。
 - **会话文件**：路径形如 `~/.pi/agent/sessions/<编码后的工作目录>/<时间戳>_<uuid>.jsonl`。
+- **恢复最近会话**：直接打开首页时，会恢复当前浏览器 Origin 最后选择的会话；显式的 `?session=<id>` 地址优先。不同主机名/IP 属于不同 Origin，各自保存缓存。
 - **模型配置**：Models 面板读写 pi agent 目录下的 `models.json`，模型列表和默认模型由 pi 的配置解析得到。
 - **HTTP 代理**：设置 `PI_PROXY=http://localhost:<port>`（或 `pi_proxy`）即可让 pi-web 的模型请求走该代理；不设置则保持默认直连。
 - **文件访问**：文件浏览和预览面向当前选择的项目目录，以及会话中已出现过的工作目录。
