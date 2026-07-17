@@ -35,3 +35,38 @@ test("keeps local file markdown links in the app", () => {
   assert.match(html, /<a href="components\/MarkdownBody\.tsx">file<\/a>/);
   assert.doesNotMatch(html, /target=|rel=|\snode=/);
 });
+
+test("renders existing dollar-delimited inline and display math", () => {
+  const inlineHtml = renderMarkdown("Euler: $e^{i\\pi}+1=0$");
+  const displayHtml = renderMarkdown("$$E=mc^2$$");
+
+  assert.match(inlineHtml, /class="katex"/);
+  assert.doesNotMatch(inlineHtml, /class="katex-display"/);
+  assert.match(displayHtml, /class="katex-display"/);
+});
+
+test("renders single-line bracket-delimited display math", () => {
+  const html = renderMarkdown("\\[E=mc^2\\]");
+
+  assert.match(html, /class="katex-display"/);
+});
+
+test("renders multiline bracket-delimited display math", () => {
+  const html = renderMarkdown("\\[\n\\sum_{i=1}^{n} i = \\frac{n(n+1)}{2}\n\\]");
+
+  assert.match(html, /class="katex-display"/);
+});
+
+test("does not render bracket-delimited math inside fenced code", () => {
+  const html = renderMarkdown("```text\n\\[E=mc^2\\]\n```");
+
+  assert.doesNotMatch(html, /class="katex(?:-display)?"/);
+  assert.match(html, /E=mc/);
+});
+
+test("leaves an unclosed bracket delimiter untouched", () => {
+  const html = renderMarkdown("\\[\nE=mc^2");
+
+  assert.doesNotMatch(html, /class="katex(?:-display)?"/);
+  assert.match(html, /\[\nE=mc\^2/);
+});

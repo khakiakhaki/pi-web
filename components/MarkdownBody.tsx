@@ -95,20 +95,66 @@ export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile
 function normalizeDisplayMath(markdown: string): string {
   const lineBreak = markdown.includes("\r\n") ? "\r\n" : "\n";
   const lines = markdown.split(/\r?\n/);
+  const fencedLines = new Set<number>();
+  const bracketBlockLines = new Set<number>();
+  const bracketDelimiterReplacements = new Map<number, string>();
   let fence: { marker: string; size: number } | null = null;
+  let bracketOpening: { index: number; replacement: string } | null = null;
+
+  // Find fenced code first so neither dollar nor bracket delimiters inside a
+  // code block are interpreted as formulas. Only replace paired standalone
+  // \[ and \] lines; malformed/unclosed delimiters remain untouched.
+  lines.forEach((line, index) => {
+    const fenceMatch = line.match(/^ {0,3}(`{3,}|~{3,})/);
+    if (fenceMatch) {
+      fencedLines.add(index);
+      const marker = fenceMatch[1][0];
+      const size = fenceMatch[1].length;
+      if (!fence) fence = { marker, size };
+      else if (marker === fence.marker && size >= fence.size) fence = null;
+      bracketOpening = null;
+      return;
+    }
+
+    if (fence) {
+      fencedLines.add(index);
+      bracketOpening = null;
+      return;
+    }
+
+    const bracketOpenMatch = line.match(/^([ \t]{0,3})\\\[[ \t]*$/);
+    if (bracketOpenMatch) {
+      bracketOpening = { index, replacement: `${bracketOpenMatch[1]}$$` };
+      return;
+    }
+
+    if (!bracketOpening) return;
+    const bracketCloseMatch = line.match(/^([ \t]{0,3})\\\][ \t]*$/);
+    if (!bracketCloseMatch) return;
+
+    bracketDelimiterReplacements.set(bracketOpening.index, bracketOpening.replacement);
+    bracketDelimiterReplacements.set(index, `${bracketCloseMatch[1]}$$`);
+    for (let blockIndex = bracketOpening.index; blockIndex <= index; blockIndex += 1) {
+      bracketBlockLines.add(blockIndex);
+    }
+    bracketOpening = null;
+  });
 
   return lines
-    .map((line) => {
-      const fenceMatch = line.match(/^ {0,3}(`{3,}|~{3,})/);
-      if (fenceMatch) {
-        const marker = fenceMatch[1][0];
-        const size = fenceMatch[1].length;
-        if (!fence) fence = { marker, size };
-        else if (marker === fence.marker && size >= fence.size) fence = null;
-        return line;
-      }
+    .map((line, index) => {
+      if (fencedLines.has(index)) return line;
 
-      if (fence) return line;
+      const bracketReplacement = bracketDelimiterReplacements.get(index);
+      if (bracketReplacement !== undefined) return bracketReplacement;
+      if (bracketBlockLines.has(index)) return line;
+
+      const bracketMathMatch = line.match(/^([ \t]{0,3})\\\[(.+)\\\][ \t]*$/);
+      if (bracketMathMatch) {
+        const math = bracketMathMatch[2].trim();
+        if (math) {
+          return `${bracketMathMatch[1]}$$${lineBreak}${math}${lineBreak}${bracketMathMatch[1]}$$`;
+        }
+      }
 
       const displayMathMatch = line.match(/^([ \t]{0,3})\$\$(.+)\$\$[ \t]*$/);
       if (!displayMathMatch) return line;
