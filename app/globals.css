@@ -1,5 +1,13 @@
 @import "tailwindcss";
 
+@font-face {
+  font-family: "PiTerminalJetBrainsMonoNerd";
+  src: url("/fonts/JetBrainsMonoNerdFontMono-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
 @theme {
   --color-bg: var(--bg);
   --color-bg-panel: var(--bg-panel);
@@ -103,6 +111,7 @@ body {
 
 :root {
   --font-mono: var(--font-noto-mono), 'JetBrains Mono', 'Fira Code', 'Consolas', ui-monospace, 'PingFang SC', 'Microsoft YaHei', monospace;
+  --terminal-font: "PiTerminalJetBrainsMonoNerd", var(--font-mono);
 }
 
 pre, code {
@@ -587,6 +596,11 @@ span.linenumber {
     min-width: 0;
     flex: 1 1 0;
   }
+  .right-panel-container.terminal-panel-container.right-panel-open:not(.right-panel-wide) {
+    width: 520px;
+    min-width: 320px;
+    max-width: 45vw;
+  }
   .right-panel-container.right-panel-closed {
     width: 0;
     min-width: 0;
@@ -597,10 +611,31 @@ span.linenumber {
     width: 42vw;
     min-width: 300px;
   }
-  .right-panel-container.right-panel-wide > * {
+  .right-panel-container.right-panel-wide > *,
+  .right-panel-container.terminal-panel-container > * {
     width: 100%;
     min-width: 0;
   }
+}
+
+.pi-terminal-xterm {
+  height: 100%;
+  width: 100%;
+  padding: 8px;
+  background: #111111;
+}
+
+.pi-terminal-xterm .xterm {
+  height: 100%;
+  width: 100%;
+}
+
+.pi-terminal-xterm .xterm-viewport {
+  background: #111111 !important;
+}
+
+.pi-terminal-xterm .xterm-screen {
+  outline: none;
 }
 
 /* Mobile sidebar: slide in/out as overlay */

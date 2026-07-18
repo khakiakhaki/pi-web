@@ -7,6 +7,7 @@ import { SessionSidebar } from "./SessionSidebar";
 import { ChatWindow } from "./ChatWindow";
 import { FileViewer } from "./FileViewer";
 import { DiffViewer } from "./DiffViewer";
+import { TerminalWorkspace } from "./TerminalWorkspace";
 import { TabBar, type DiffTab, type Tab } from "./TabBar";
 import { ModelsConfig } from "./ModelsConfig";
 import { SkillsConfig } from "./SkillsConfig";
@@ -138,6 +139,9 @@ export function AppShell() {
   const [workspaceTabs, setWorkspaceTabs] = useState<Tab[]>([]);
   const [activeWorkspaceTabId, setActiveWorkspaceTabId] = useState<string | null>(null);
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
+  const [terminalPanelOpen, setTerminalPanelOpen] = useState(false);
+  const [terminalActivationKey, setTerminalActivationKey] = useState(0);
+  const [terminalWidthMode, setTerminalWidthMode] = useState<"normal" | "wide">("normal");
   const [changesRefreshKey, setChangesRefreshKey] = useState(0);
   // Diff display preferences live only for this page lifetime (never localStorage).
   const [diffViewMode, setDiffViewMode] = useState<"unified" | "split">("unified");
@@ -324,6 +328,7 @@ export function AppShell() {
       return prev.map((tab) => tab.id === tabId ? { ...existing, sourceSessionId } : tab);
     });
     setActiveWorkspaceTabId(tabId);
+    setTerminalPanelOpen(false);
     setRightPanelOpen(true);
     // On mobile the workspace panel is full-screen; close the drawer so it shows.
     if (isMobile) setSidebarOpen(false);
@@ -355,6 +360,7 @@ export function AppShell() {
       }];
     });
     setActiveWorkspaceTabId(tabId);
+    setTerminalPanelOpen(false);
     setRightPanelOpen(true);
     if (isMobile) setSidebarOpen(false);
   }, [isMobile]);
@@ -404,10 +410,24 @@ export function AppShell() {
   const showPlaceholder = initialSessionRestored && !showChat;
 
   const activeWorkspaceTab = workspaceTabs.find((tab) => tab.id === activeWorkspaceTabId) ?? null;
-  const rightPanelWide = rightPanelOpen
+  const workspacePanelOpen = rightPanelOpen && !terminalPanelOpen;
+  const rightPanelWide = workspacePanelOpen
     && !isMobile
     && activeWorkspaceTab?.kind === "diff"
     && activeWorkspaceTab.widthMode === "wide";
+  const terminalPanelWide = terminalPanelOpen && !isMobile && terminalWidthMode === "wide";
+  const wideSidePanelOpen = rightPanelWide || terminalPanelWide;
+  const terminalCwd = selectedSession?.cwd ?? newSessionCwd ?? activeCwd ?? null;
+
+  const handleTerminalToggle = () => {
+    setTerminalPanelOpen((open) => {
+      if (open) return false;
+      setRightPanelOpen(false);
+      setTerminalActivationKey((key) => key + 1);
+      if (isMobile) setSidebarOpen(false);
+      return true;
+    });
+  };
 
   const sidebarContent = (
     <>
@@ -599,9 +619,9 @@ export function AppShell() {
         {sidebarContent}
       </div>
 
-      {/* Center: chat. A wide diff keeps this mounted but collapses its width. */}
+      {/* Center: chat. A wide side panel keeps this mounted but collapses its width. */}
       <div style={{
-        flex: rightPanelWide ? "0 0 0" : "1 1 0",
+        flex: wideSidePanelOpen ? "0 0 0" : "1 1 0",
         display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0,
         transition: "flex-basis 0.2s ease",
       }}>
@@ -798,7 +818,7 @@ export function AppShell() {
                   marginLeft: "auto",
                   display: "flex", alignItems: "center", gap: 10,
                   paddingLeft: 12,
-                  paddingRight: rightPanelOpen ? 12 : 48,
+                  paddingRight: (workspacePanelOpen || terminalPanelOpen) ? 12 : 84,
                   height: "100%",
                   background: activeTopPanel === "session" ? "var(--bg-selected)" : "none",
                   border: "none",
@@ -1099,7 +1119,7 @@ export function AppShell() {
 
       {/* Workspace panel: ordinary file previews and Git diff tabs. */}
       <div
-        className={`right-panel-container${rightPanelOpen ? " right-panel-open" : " right-panel-closed"}${rightPanelWide ? " right-panel-wide" : ""}`}
+        className={`right-panel-container${workspacePanelOpen ? " right-panel-open" : " right-panel-closed"}${rightPanelWide ? " right-panel-wide" : ""}`}
         style={{
           display: "flex",
           flexDirection: "column",
@@ -1107,7 +1127,7 @@ export function AppShell() {
           background: "var(--bg)",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", flexShrink: 0, background: "var(--bg-panel)", borderBottom: "1px solid var(--border)", height: 36, paddingRight: 36, boxSizing: "border-box" }}>
+        <div style={{ display: "flex", alignItems: "center", flexShrink: 0, background: "var(--bg-panel)", borderBottom: "1px solid var(--border)", height: 36, paddingRight: 72, boxSizing: "border-box" }}>
           {(isMobile || rightPanelWide) && (
             <button
               type="button"
@@ -1176,25 +1196,67 @@ export function AppShell() {
           )}
         </div>
       </div>
+
+      {/* Terminal panel: uses the same side-panel slot as files/diffs, but is mutually exclusive. */}
+      <div
+        className={`right-panel-container terminal-panel-container${terminalPanelOpen ? " right-panel-open" : " right-panel-closed"}${terminalPanelWide ? " right-panel-wide" : ""}`}
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          borderLeft: "1px solid var(--border)",
+          background: "#111",
+        }}
+      >
+        <TerminalWorkspace
+          active={terminalPanelOpen}
+          activationKey={terminalActivationKey}
+          cwd={terminalCwd}
+          widthMode={terminalWidthMode}
+          onWidthModeChange={setTerminalWidthMode}
+          onEmpty={() => setTerminalPanelOpen(false)}
+        />
+      </div>
     </div>
-    {/* One workspace-panel toggle — files and diffs are opened from the sidebar. */}
+    {/* Top-right side-panel toggles: workspace and terminal are mutually exclusive. */}
     <button
-      onClick={() => setRightPanelOpen((v) => !v)}
-      title={rightPanelOpen ? "Hide workspace panel" : "Show workspace panel"}
-      aria-label={rightPanelOpen ? "Hide workspace panel" : "Show workspace panel"}
+      onClick={() => {
+        setTerminalPanelOpen(false);
+        setRightPanelOpen((value) => !value);
+      }}
+      title={workspacePanelOpen ? "Hide workspace panel" : "Show workspace panel"}
+      aria-label={workspacePanelOpen ? "Hide workspace panel" : "Show workspace panel"}
+      style={{
+        position: "fixed", top: 0, right: 36, zIndex: 300,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        width: 36, height: 36, padding: 0,
+        background: "var(--bg-panel)", border: "none", borderLeft: "1px solid var(--border)", borderBottom: "1px solid var(--border)",
+        color: workspacePanelOpen ? "var(--text)" : "var(--text-muted)",
+        cursor: "pointer", transition: "color 0.12s",
+      }}
+      onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text)"; }}
+      onMouseLeave={(e) => { e.currentTarget.style.color = workspacePanelOpen ? "var(--text)" : "var(--text-muted)"; }}
+    >
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="3" y="3" width="18" height="18" rx="2" /><line x1="15" y1="3" x2="15" y2="21" />
+      </svg>
+    </button>
+    <button
+      onClick={handleTerminalToggle}
+      title={terminalPanelOpen ? "Hide terminal" : "Show terminal"}
+      aria-label={terminalPanelOpen ? "Hide terminal" : "Show terminal"}
       style={{
         position: "fixed", top: 0, right: 0, zIndex: 300,
         display: "flex", alignItems: "center", justifyContent: "center",
         width: 36, height: 36, padding: 0,
         background: "var(--bg-panel)", border: "none", borderLeft: "1px solid var(--border)", borderBottom: "1px solid var(--border)",
-        color: rightPanelOpen ? "var(--text)" : "var(--text-muted)",
+        color: terminalPanelOpen ? "var(--text)" : "var(--text-muted)",
         cursor: "pointer", transition: "color 0.12s",
       }}
       onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text)"; }}
-      onMouseLeave={(e) => { e.currentTarget.style.color = rightPanelOpen ? "var(--text)" : "var(--text-muted)"; }}
+      onMouseLeave={(e) => { e.currentTarget.style.color = terminalPanelOpen ? "var(--text)" : "var(--text-muted)"; }}
     >
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <rect x="3" y="3" width="18" height="18" rx="2" /><line x1="15" y1="3" x2="15" y2="21" />
+        <polyline points="4 17 10 11 4 5" /><line x1="12" y1="19" x2="20" y2="19" />
       </svg>
     </button>
     {modelsConfigOpen && <ModelsConfig onClose={() => { setModelsConfigOpen(false); setModelsRefreshKey((k) => k + 1); }} />}
