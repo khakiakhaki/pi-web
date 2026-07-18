@@ -43,6 +43,7 @@ PI_WEB_NO_OPEN=1 pi-web         # useful when running as a background service
 - **Try different directions safely**: continue from an earlier message or fork a session into a separate route.
 - **Work across branches**: switch Git worktrees from the sidebar so new sessions and the Explorer follow the checkout you choose.
 - **Chat beside the project**: browse files on the left and preview source, docs, images, audio, and PDFs on the right while the agent works.
+- **Review working-tree changes**: open text changes from the sidebar in inline or split diffs, with character highlights, context/full-file modes, wrapping, and a wide review layout.
 - **See session state clearly**: context usage, cost, compaction state, and system prompt details are visible from the top bar.
 - **Configure less from the terminal**: manage models, login/API keys, model tests, and skill switches from the web UI.
 

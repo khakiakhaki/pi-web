@@ -6,7 +6,8 @@ import { useGlobalKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { SessionSidebar } from "./SessionSidebar";
 import { ChatWindow } from "./ChatWindow";
 import { FileViewer } from "./FileViewer";
-import { TabBar, type Tab } from "./TabBar";
+import { DiffViewer } from "./DiffViewer";
+import { TabBar, type DiffTab, type Tab } from "./TabBar";
 import { ModelsConfig } from "./ModelsConfig";
 import { SkillsConfig } from "./SkillsConfig";
 import { PluginsConfig } from "./PluginsConfig";
@@ -17,6 +18,7 @@ import { copyText } from "@/lib/clipboard";
 import { getFileName } from "@/lib/file-paths";
 import { buildAtMentionText, buildFileAtMentionsText } from "@/lib/file-fuzzy";
 import { clearLastSessionId, loadLastSessionId, saveLastSessionId } from "@/lib/last-session-store";
+import type { GitChangedFile } from "@/lib/git-types";
 import type { SessionInfo, SessionTreeNode } from "@/lib/types";
 import type { ChatInputHandle } from "./ChatInput";
 import type { SessionStatsInfo } from "@/lib/pi-types";
@@ -131,10 +133,16 @@ export function AppShell() {
     return () => ro.disconnect();
   }, [activeTopPanel]);
 
-  // Right panel — file tabs only
-  const [fileTabs, setFileTabs] = useState<Tab[]>([]);
-  const [activeFileTabId, setActiveFileTabId] = useState<string | null>(null);
+  // One workspace panel hosts both ordinary file previews and Git diff tabs.
+  // The active tab determines the effective width; file tabs are always normal.
+  const [workspaceTabs, setWorkspaceTabs] = useState<Tab[]>([]);
+  const [activeWorkspaceTabId, setActiveWorkspaceTabId] = useState<string | null>(null);
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
+  const [changesRefreshKey, setChangesRefreshKey] = useState(0);
+  // Diff display preferences live only for this page lifetime (never localStorage).
+  const [diffViewMode, setDiffViewMode] = useState<"unified" | "split">("unified");
+  const [diffScope, setDiffScope] = useState<"changes" | "full">("changes");
+  const [diffWrap, setDiffWrap] = useState(false);
 
   // Same @mention format as the chat input's @ autocomplete, so the agent's
   // read tool resolves it the same way (it strips the @ prefix).
@@ -267,6 +275,7 @@ export function AppShell() {
   const handleAgentEnd = useCallback(() => {
     setRefreshKey((k) => k + 1);
     setExplorerRefreshKey((k) => k + 1);
+    setChangesRefreshKey((k) => k + 1);
   }, []);
 
   const handleSessionForked = useCallback((newSessionId: string) => {
@@ -308,15 +317,15 @@ export function AppShell() {
 
   const handleOpenFile = useCallback((filePath: string, fileName: string, sourceSessionId?: string | null) => {
     const tabId = `file:${filePath}`;
-    setFileTabs((prev) => {
-      const existing = prev.find((t) => t.id === tabId);
-      if (!existing) return [...prev, { id: tabId, label: fileName, filePath, sourceSessionId }];
-      if (!sourceSessionId || existing.sourceSessionId === sourceSessionId) return prev;
-      return prev.map((t) => t.id === tabId ? { ...t, sourceSessionId } : t);
+    setWorkspaceTabs((prev) => {
+      const existing = prev.find((tab) => tab.id === tabId);
+      if (!existing) return [...prev, { kind: "file", id: tabId, label: fileName, filePath, sourceSessionId }];
+      if (existing.kind !== "file" || !sourceSessionId || existing.sourceSessionId === sourceSessionId) return prev;
+      return prev.map((tab) => tab.id === tabId ? { ...existing, sourceSessionId } : tab);
     });
-    setActiveFileTabId(tabId);
+    setActiveWorkspaceTabId(tabId);
     setRightPanelOpen(true);
-    // On mobile the file panel is full-screen; close the drawer so it shows.
+    // On mobile the workspace panel is full-screen; close the drawer so it shows.
     if (isMobile) setSidebarOpen(false);
   }, [isMobile]);
 
@@ -324,18 +333,60 @@ export function AppShell() {
     handleOpenFile(filePath, getFileName(filePath), selectedSession?.id ?? null);
   }, [handleOpenFile, selectedSession?.id]);
 
-  const handleCloseFileTab = useCallback((tabId: string) => {
-    setFileTabs((prev) => {
-      const next = prev.filter((t) => t.id !== tabId);
+  const handleOpenDiff = useCallback((file: GitChangedFile, cwd: string, repoRoot: string) => {
+    const tabId = `diff:${repoRoot}:${file.path}`;
+    setWorkspaceTabs((prev) => {
+      const existing = prev.find((tab) => tab.id === tabId);
+      if (existing) {
+        return prev.map((tab) => tab.id === tabId && tab.kind === "diff"
+          ? { ...tab, cwd, repoRoot, path: file.path, oldPath: file.oldPath, status: file.status }
+          : tab);
+      }
+      return [...prev, {
+        kind: "diff",
+        id: tabId,
+        label: getFileName(file.path),
+        cwd,
+        repoRoot,
+        path: file.path,
+        ...(file.oldPath ? { oldPath: file.oldPath } : {}),
+        status: file.status,
+        widthMode: "normal",
+      }];
+    });
+    setActiveWorkspaceTabId(tabId);
+    setRightPanelOpen(true);
+    if (isMobile) setSidebarOpen(false);
+  }, [isMobile]);
+
+  const handleCloseWorkspaceTab = useCallback((tabId: string) => {
+    setWorkspaceTabs((prev) => {
+      const next = prev.filter((tab) => tab.id !== tabId);
       if (next.length === 0) setRightPanelOpen(false);
       return next;
     });
-    setActiveFileTabId((cur) => {
-      if (cur !== tabId) return cur;
-      const remaining = fileTabs.filter((t) => t.id !== tabId);
+    setActiveWorkspaceTabId((current) => {
+      if (current !== tabId) return current;
+      const remaining = workspaceTabs.filter((tab) => tab.id !== tabId);
       return remaining.length > 0 ? remaining[remaining.length - 1].id : null;
     });
-  }, [fileTabs]);
+  }, [workspaceTabs]);
+
+  const handleDiffWidthModeChange = useCallback((mode: "normal" | "wide") => {
+    if (!activeWorkspaceTabId) return;
+    setWorkspaceTabs((prev) => prev.map((tab) =>
+      tab.id === activeWorkspaceTabId && tab.kind === "diff" ? { ...tab, widthMode: mode } : tab,
+    ));
+  }, [activeWorkspaceTabId]);
+
+  const handleDiffMetadataChange = useCallback((metadata: Pick<DiffTab, "path" | "oldPath" | "status" | "repoRoot">) => {
+    if (!activeWorkspaceTabId) return;
+    setWorkspaceTabs((prev) => prev.map((tab) =>
+      tab.id === activeWorkspaceTabId && tab.kind === "diff"
+        ? { ...tab, ...metadata, label: getFileName(metadata.path) }
+        : tab,
+    ));
+  }, [activeWorkspaceTabId]);
 
   const handleViewFullHistory = useCallback(() => {
     if (!selectedSession) return;
@@ -352,7 +403,11 @@ export function AppShell() {
   // While restoring initial session from URL, don't show the placeholder
   const showPlaceholder = initialSessionRestored && !showChat;
 
-  const activeFileTab = fileTabs.find((t) => t.id === activeFileTabId) ?? null;
+  const activeWorkspaceTab = workspaceTabs.find((tab) => tab.id === activeWorkspaceTabId) ?? null;
+  const rightPanelWide = rightPanelOpen
+    && !isMobile
+    && activeWorkspaceTab?.kind === "diff"
+    && activeWorkspaceTab.widthMode === "wide";
 
   const sidebarContent = (
     <>
@@ -369,6 +424,9 @@ export function AppShell() {
         onCwdChange={handleCwdChange}
         onOpenFile={handleOpenFile}
         explorerRefreshKey={explorerRefreshKey}
+        changesRefreshKey={changesRefreshKey}
+        onRefreshChanges={() => setChangesRefreshKey((key) => key + 1)}
+        onOpenDiff={handleOpenDiff}
         onAtMention={handleAtMention}
         onAtMentions={handleAtMentions}
       />
@@ -541,8 +599,12 @@ export function AppShell() {
         {sidebarContent}
       </div>
 
-      {/* Center: chat */}
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
+      {/* Center: chat. A wide diff keeps this mounted but collapses its width. */}
+      <div style={{
+        flex: rightPanelWide ? "0 0 0" : "1 1 0",
+        display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0,
+        transition: "flex-basis 0.2s ease",
+      }}>
         {/* Top bar with sidebar toggle */}
         <div ref={topBarRef} style={{ display: "flex", alignItems: "center", flexShrink: 0, borderBottom: "1px solid var(--border)", height: 36, background: "var(--bg-panel)" }}>
           <button
@@ -1035,9 +1097,9 @@ export function AppShell() {
         </div>
       </div>
 
-      {/* Right panel: file viewer — always mounted, width animated via CSS */}
+      {/* Workspace panel: ordinary file previews and Git diff tabs. */}
       <div
-        className={`right-panel-container${rightPanelOpen ? " right-panel-open" : " right-panel-closed"}`}
+        className={`right-panel-container${rightPanelOpen ? " right-panel-open" : " right-panel-closed"}${rightPanelWide ? " right-panel-wide" : ""}`}
         style={{
           display: "flex",
           flexDirection: "column",
@@ -1045,31 +1107,67 @@ export function AppShell() {
           background: "var(--bg)",
         }}
       >
-        {/* Right panel tab bar */}
-        <div style={{ display: "flex", alignItems: "center", flexShrink: 0, background: "var(--bg-panel)", borderBottom: "1px solid var(--border)", height: 36 }}>
+        <div style={{ display: "flex", alignItems: "center", flexShrink: 0, background: "var(--bg-panel)", borderBottom: "1px solid var(--border)", height: 36, paddingRight: 36, boxSizing: "border-box" }}>
+          {(isMobile || rightPanelWide) && (
+            <button
+              type="button"
+              onClick={handleSidebarToggle}
+              title={sidebarOpen ? "Hide sidebar" : "Show sidebar"}
+              aria-label={sidebarOpen ? "Hide sidebar" : "Show sidebar"}
+              style={{
+                display: "flex", alignItems: "center", justifyContent: "center",
+                width: 36, height: 36, padding: 0, flexShrink: 0,
+                background: "none", border: "none", borderRight: "1px solid var(--border)",
+                color: "var(--text-muted)", cursor: "pointer",
+              }}
+            >
+              {sidebarOpen ? (
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="3" width="18" height="18" rx="2" /><line x1="9" y1="3" x2="9" y2="21" />
+                </svg>
+              ) : (
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" />
+                </svg>
+              )}
+            </button>
+          )}
           <div style={{ flex: 1, overflow: "hidden" }}>
             <TabBar
-              tabs={fileTabs}
-              activeTabId={activeFileTabId ?? ""}
-              onSelectTab={setActiveFileTabId}
-              onCloseTab={handleCloseFileTab}
+              tabs={workspaceTabs}
+              activeTabId={activeWorkspaceTabId ?? ""}
+              onSelectTab={setActiveWorkspaceTabId}
+              onCloseTab={handleCloseWorkspaceTab}
             />
           </div>
-
         </div>
 
-        {/* File content */}
         <div style={{ flex: 1, overflow: "hidden" }}>
-          {activeFileTab?.filePath ? (
+          {activeWorkspaceTab?.kind === "file" ? (
             <FileViewer
-              filePath={activeFileTab.filePath}
+              filePath={activeWorkspaceTab.filePath}
               cwd={activeCwd ?? undefined}
-              sourceSessionId={activeFileTab.sourceSessionId}
+              sourceSessionId={activeWorkspaceTab.sourceSessionId}
               onOpenFile={(filePath) => handleOpenFile(
                 filePath,
                 getFileName(filePath),
-                activeFileTab.sourceSessionId,
+                activeWorkspaceTab.sourceSessionId,
               )}
+            />
+          ) : activeWorkspaceTab?.kind === "diff" ? (
+            <DiffViewer
+              key={activeWorkspaceTab.id}
+              tab={activeWorkspaceTab}
+              isMobile={isMobile}
+              refreshKey={changesRefreshKey}
+              viewMode={diffViewMode}
+              scope={diffScope}
+              wrap={diffWrap}
+              onViewModeChange={setDiffViewMode}
+              onScopeChange={setDiffScope}
+              onWrapChange={setDiffWrap}
+              onWidthModeChange={handleDiffWidthModeChange}
+              onMetadataChange={handleDiffMetadataChange}
             />
           ) : (
             <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-dim)", fontSize: 12 }}>
@@ -1079,11 +1177,11 @@ export function AppShell() {
         </div>
       </div>
     </div>
-    {/* File panel toggle — always visible at top-right */}
+    {/* One workspace-panel toggle — files and diffs are opened from the sidebar. */}
     <button
       onClick={() => setRightPanelOpen((v) => !v)}
-      title={rightPanelOpen ? "Hide file panel" : "Show file panel"}
-      aria-label={rightPanelOpen ? "Hide file panel" : "Show file panel"}
+      title={rightPanelOpen ? "Hide workspace panel" : "Show workspace panel"}
+      aria-label={rightPanelOpen ? "Hide workspace panel" : "Show workspace panel"}
       style={{
         position: "fixed", top: 0, right: 0, zIndex: 300,
         display: "flex", alignItems: "center", justifyContent: "center",

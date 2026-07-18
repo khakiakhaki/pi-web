@@ -1,20 +1,43 @@
 "use client";
 
 import { useState } from "react";
+import type { GitChangeStatus } from "@/lib/git-types";
 import { getFileIcon } from "./FileIcons";
 
-export interface Tab {
+export interface FileTab {
+  kind: "file";
   id: string;
   label: string;
   filePath: string;
   sourceSessionId?: string | null;
 }
 
+export interface DiffTab {
+  kind: "diff";
+  id: string;
+  label: string;
+  cwd: string;
+  repoRoot: string;
+  path: string;
+  oldPath?: string;
+  status: GitChangeStatus;
+  widthMode: "normal" | "wide";
+}
+
+export type Tab = FileTab | DiffTab;
+
 interface Props {
   tabs: Tab[];
   activeTabId: string;
   onSelectTab: (id: string) => void;
   onCloseTab: (id: string) => void;
+}
+
+function diffAccent(status: GitChangeStatus): string {
+  if (status === "added" || status === "untracked" || status === "copied") return "#22c55e";
+  if (status === "deleted") return "#ef4444";
+  if (status === "conflicted") return "#f97316";
+  return "linear-gradient(90deg, #ef4444 0 50%, #22c55e 50% 100%)";
 }
 
 export function TabBar({ tabs, activeTabId, onSelectTab, onCloseTab }: Props) {
@@ -33,15 +56,22 @@ export function TabBar({ tabs, activeTabId, onSelectTab, onCloseTab }: Props) {
     >
       {tabs.map((tab) => {
         const isActive = tab.id === activeTabId;
+        const isDiff = tab.kind === "diff";
+        const accent = isDiff ? diffAccent(tab.status) : "transparent";
+        const title = isDiff
+          ? (tab.oldPath ? `${tab.oldPath} → ${tab.path}` : tab.path)
+          : tab.filePath;
         return (
           <div
             key={tab.id}
             onClick={() => onSelectTab(tab.id)}
             style={{
+              position: "relative",
               display: "flex",
               alignItems: "center",
               gap: 6,
               height: 36,
+              boxSizing: "border-box",
               paddingLeft: 12,
               paddingRight: 6,
               borderRight: "1px solid var(--border)",
@@ -50,15 +80,25 @@ export function TabBar({ tabs, activeTabId, onSelectTab, onCloseTab }: Props) {
               fontSize: 12,
               color: isActive ? "var(--text)" : "var(--text-muted)",
               whiteSpace: "nowrap",
-              maxWidth: 180,
+              maxWidth: 210,
               minWidth: 80,
               flexShrink: 0,
               userSelect: "none",
               transition: "background 0.1s, color 0.1s",
             }}
           >
+            {isDiff && (
+              <span
+                aria-hidden="true"
+                style={{
+                  position: "absolute", top: 0, left: 0, right: 0, height: 2,
+                  background: accent,
+                  opacity: isActive ? 1 : 0.62,
+                }}
+              />
+            )}
             <span style={{ flexShrink: 0, opacity: isActive ? 1 : 0.7, display: "flex", alignItems: "center" }}>
-              {getFileIcon(tab.label, 13)}
+              {getFileIcon(isDiff ? tab.path : tab.label, 13)}
             </span>
             <span
               style={{
@@ -67,24 +107,21 @@ export function TabBar({ tabs, activeTabId, onSelectTab, onCloseTab }: Props) {
                 flex: 1,
                 fontWeight: isActive ? 500 : 400,
               }}
-              title={tab.filePath}
+              title={title}
             >
               {tab.label}
             </span>
             <button
-              onClick={(e) => { e.stopPropagation(); onCloseTab(tab.id); }}
+              onClick={(event) => { event.stopPropagation(); onCloseTab(tab.id); }}
               onMouseEnter={() => setHoveredClose(tab.id)}
               onMouseLeave={() => setHoveredClose(null)}
               style={{
                 display: "flex", alignItems: "center", justifyContent: "center",
                 width: 24, height: 24,
                 background: hoveredClose === tab.id ? "var(--bg-hover)" : "transparent",
-                border: "none",
-                borderRadius: 4,
+                border: "none", borderRadius: 4,
                 color: hoveredClose === tab.id ? "var(--text)" : "var(--text-dim)",
-                cursor: "pointer",
-                padding: 0,
-                flexShrink: 0,
+                cursor: "pointer", padding: 0, flexShrink: 0,
                 transition: "background 0.1s, color 0.1s",
               }}
               title="Close"

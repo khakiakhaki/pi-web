@@ -582,6 +582,11 @@ span.linenumber {
     width: 42%;
     min-width: 300px;
   }
+  .right-panel-container.right-panel-open.right-panel-wide {
+    width: auto;
+    min-width: 0;
+    flex: 1 1 0;
+  }
   .right-panel-container.right-panel-closed {
     width: 0;
     min-width: 0;
@@ -591,6 +596,10 @@ span.linenumber {
   .right-panel-container > * {
     width: 42vw;
     min-width: 300px;
+  }
+  .right-panel-container.right-panel-wide > * {
+    width: 100%;
+    min-width: 0;
   }
 }
 
@@ -631,5 +640,102 @@ span.linenumber {
     min-width: 0 !important;
     border-left: none !important;
     display: none !important;
+  }
+}
+
+@keyframes changes-refresh-spin {
+  to { transform: rotate(360deg); }
+}
+
+.changes-refresh-spin {
+  animation: changes-refresh-spin 0.9s linear infinite;
+}
+
+.diff-view-state {
+  min-height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  box-sizing: border-box;
+  color: var(--text-dim);
+  font-size: 12px;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+.diff-view-error {
+  color: #f87171;
+}
+
+.pi-diff-viewer {
+  min-width: 100%;
+  min-height: 100%;
+  --diff-background-color: var(--bg);
+  --diff-text-color: var(--text);
+  --diff-font-family: var(--font-mono);
+  --diff-gutter-insert-background-color: color-mix(in srgb, #22c55e 16%, var(--bg));
+  --diff-gutter-insert-text-color: var(--text-muted);
+  --diff-gutter-delete-background-color: color-mix(in srgb, #ef4444 16%, var(--bg));
+  --diff-gutter-delete-text-color: var(--text-muted);
+  --diff-code-insert-background-color: color-mix(in srgb, #22c55e 10%, var(--bg));
+  --diff-code-insert-text-color: var(--text);
+  --diff-code-delete-background-color: color-mix(in srgb, #ef4444 10%, var(--bg));
+  --diff-code-delete-text-color: var(--text);
+  --diff-code-insert-edit-background-color: color-mix(in srgb, #22c55e 36%, var(--bg));
+  --diff-code-insert-edit-text-color: var(--text);
+  --diff-code-delete-edit-background-color: color-mix(in srgb, #ef4444 34%, var(--bg));
+  --diff-code-delete-edit-text-color: var(--text);
+  --diff-omit-gutter-line-color: var(--text-dim);
+}
+
+.pi-diff-viewer .diff {
+  font-size: 12px;
+}
+
+.pi-diff-viewer .diff-line {
+  line-height: 1.55;
+}
+
+.pi-diff-viewer .diff-gutter {
+  color: var(--text-dim);
+  border-right: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+}
+
+.pi-diff-viewer .diff-code {
+  padding-left: 8px;
+}
+
+.pi-diff-viewer.diff-nowrap .diff {
+  width: max-content;
+  min-width: 100%;
+  table-layout: auto;
+}
+
+.pi-diff-viewer.diff-nowrap.diff-is-split .diff {
+  min-width: 860px;
+}
+
+.pi-diff-viewer.diff-nowrap .diff-code {
+  white-space: pre;
+  word-break: normal;
+  overflow-wrap: normal;
+}
+
+.pi-diff-viewer.diff-wrap .diff-code {
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 640px) {
+  .diff-toolbar {
+    padding-right: 44px !important;
+  }
+  .pi-diff-viewer .diff {
+    font-size: 11px;
+  }
+  .pi-diff-viewer .diff-gutter-col {
+    width: 5ch;
   }
 }
